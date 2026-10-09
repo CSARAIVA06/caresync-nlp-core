@@ -1,93 +1,80 @@
-# caresync-nlp-core
+# CareSync NLP Core
 
+Serviço de triagem de laudos laboratoriais do CareSync. Recebe o texto bruto de um laudo, extrai os marcadores (Hemoglobina, Leucócitos, Plaquetas, Ferritina), classifica o risco de forma determinística (`NORMAL`, `ATENCAO`, `CRITICO`) e gera uma mensagem humanizada para o paciente via LLM (Groq), com guardrails éticos.
 
-
-## Getting started
-
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
-
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
-
-## Add your files
-
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## Arquitetura
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/caiofasaraiva/caresync-nlp-core.git
-git branch -M main
-git push -uf origin main
+texto do laudo ──► parser.py (regex/NER) ──► rules.py (classificação determinística) ──► llm_service.py (mensagem) ──► API
 ```
 
-## Integrate with your tools
+- **`src/parser.py`**: extrai valor, unidade e faixa de referência. Entende números no formato brasileiro (`13,5`, `250.000`).
+- **`src/rules.py`**: classifica cada item e o resultado geral (o pior item define o risco). Valores de pânico: hemoglobina < 7,0 g/dL e plaquetas < 50.000/mm³ → `CRITICO`.
+- **`src/llm_service.py`**: gera a mensagem para o paciente. Sem `GROQ_API_KEY`, ou se o LLM falhar, usa uma mensagem fixa por nível de risco. A classificação nunca depende do LLM.
+- **`src/main.py`**: API FastAPI.
 
-* [Set up project integrations](https://gitlab.com/caiofasaraiva/caresync-nlp-core/-/settings/integrations)
+## Rodando localmente
 
-## Collaborate with your team
+```bash
+python -m venv .venv
+# Windows: .venv\Scripts\activate | Linux/macOS: source .venv/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env   # preencha GROQ_API_KEY (opcional)
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+uvicorn src.main:app --reload
+```
 
-## Test and Deploy
+Documentação interativa: http://localhost:8000/docs
 
-Use the built-in continuous integration in GitLab.
+## Testes
 
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
+```bash
+pytest
+```
 
-***
+## Docker
 
-# Editing this README
+```bash
+docker build -t caresync-nlp-core .
+docker run -p 8000:8000 --env-file .env caresync-nlp-core
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+A porta pode ser alterada com a variável `PORT` (útil para Render/Railway/Fly).
 
-## Suggestions for a good README
+## API
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+### `POST /api/v1/triagem`
 
-## Name
-Choose a self-explaining name for your project.
+```json
+{
+  "paciente_id": "P-123",
+  "texto_laudo": "Hemoglobina: 6,2 g/dL Referência: 12,0 a 15,5"
+}
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+Resposta:
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+```json
+{
+  "paciente_id": "P-123",
+  "tipo_exame": "Análise de Sangue / Hemograma",
+  "classificacao_geral": "CRITICO",
+  "cor_badge": "#EF4444",
+  "exames_extraidos": [
+    {"parametro": "Hemoglobina", "valor": 6.2, "unidade": "g/dL", "ref_min": 12.0, "ref_max": 15.5, "status_item": "CRITICO"}
+  ],
+  "mensagem_humanizada": "..."
+}
+```
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+Retorna `400` quando nenhum marcador é reconhecido no texto.
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+## Variáveis de ambiente
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `GROQ_API_KEY` | vazio | Chave da API Groq. Sem ela, usa mensagens padrão. |
+| `DEFAULT_LLM_MODEL` | `llama-3.3-70b-versatile` | Modelo usado no Groq. |
+| `CORS_ORIGINS` | `*` | Origens permitidas, separadas por vírgula (ex: o domínio do Vercel). |
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+> ⚠️ Este serviço é um apoio à comunicação e não substitui avaliação médica.
