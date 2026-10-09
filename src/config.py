@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "CareSync NLP Core"
     GROQ_API_KEY: str = ""
     DEFAULT_LLM_MODEL: str = "llama-3.3-70b-versatile"
+    LLM_TIMEOUT_SECONDS: float = 10.0
     # Origens separadas por vírgula (ex: "https://caresync.vercel.app,http://localhost:3000")
     CORS_ORIGINS: str = "*"
 

@@ -1,0 +1,5 @@
+.venv/
+notebooks/
+tests/
+Dockerfile
+requirements-dev.txt

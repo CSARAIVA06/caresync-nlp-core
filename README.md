@@ -1,25 +1,39 @@
 # CareSync NLP Core
 
-Serviço de triagem de laudos laboratoriais do CareSync. Recebe o texto bruto de um laudo, extrai os marcadores (Hemoglobina, Leucócitos, Plaquetas, Ferritina), classifica o risco de forma determinística (`NORMAL`, `ATENCAO`, `CRITICO`) e gera uma mensagem humanizada para o paciente via LLM (Groq), com guardrails éticos.
+API de triagem de laudos laboratoriais do [CareSync](https://caresync-eta-ten.vercel.app). Recebe o texto bruto de um laudo e devolve:
+
+1. os marcadores extraídos (valor, unidade e faixa de referência);
+2. a classificação de risco (`NORMAL`, `ATENCAO`, `CRITICO`), feita por regras determinísticas;
+3. uma mensagem humanizada para o paciente, gerada por LLM (Groq), com guardrails.
+
+O site ([gitlab.com/caiofasaraiva/caresync](https://gitlab.com/caiofasaraiva/caresync)) chama esta API no simulador e usa o motor do navegador como reserva caso ela esteja fora do ar.
 
 ## Arquitetura
 
 ```
-texto do laudo ──► parser.py (regex/NER) ──► rules.py (classificação determinística) ──► llm_service.py (mensagem) ──► API
+texto do laudo
+  └─► parser.py         NER por regras: marcadores, valores, referência do laudo
+       └─► rules.py     classificação determinística (pior item define o risco)
+            └─► llm_service.py   LLM escreve a explicação + verificação de guardrails
+                 └─► mensagens.py    saudação, conduta e aviso fixos
 ```
 
-- **`src/parser.py`**: extrai valor, unidade e faixa de referência. Entende números no formato brasileiro (`13,5`, `250.000`).
-- **`src/rules.py`**: classifica cada item e o resultado geral (o pior item define o risco). Valores de pânico: hemoglobina < 7,0 g/dL e plaquetas < 50.000/mm³ → `CRITICO`.
-- **`src/llm_service.py`**: gera a mensagem para o paciente. Sem `GROQ_API_KEY`, ou se o LLM falhar, usa uma mensagem fixa por nível de risco. A classificação nunca depende do LLM.
-- **`src/main.py`**: API FastAPI.
+| Módulo | Função |
+|---|---|
+| `src/knowledge_base.py` | Base de conhecimento (12 marcadores): aliases, unidade, referência, limites críticos e explicações em linguagem simples. É o contexto do "RAG". Mantida em sincronia com `app/lib/triage.js` do site. |
+| `src/parser.py` | Extrai os marcadores de texto livre. Entende números brasileiros (`13,5`, `250.000`, `250 mil`), ignora datas e "hemoglobina glicada"/"colesterol HDL", e lê a referência do laudo (`VR: 12,0 a 15,5`, `VR: < 190`). Se o laudo não traz referência, ou ela está em outra escala, usa a da base. |
+| `src/rules.py` | Classifica cada item: fora da referência → `ATENCAO`; além do limite crítico da base → `CRITICO`. Os limites críticos nunca vêm do laudo. |
+| `src/llm_service.py` | O LLM escreve só a explicação dos resultados. A resposta é descartada se afirmar diagnóstico ou prescrever algo, e o texto padrão é usado. O nome do paciente **nunca** é enviado ao LLM. |
+| `src/mensagens.py` | Texto padrão e partes fixas da mensagem (saudação, orientação de conduta, como "ligue 192", e aviso). |
+| `src/main.py` | API FastAPI. |
 
 ## Rodando localmente
 
-```bash
+```powershell
 python -m venv .venv
-# Windows: .venv\Scripts\activate | Linux/macOS: source .venv/bin/activate
+.\.venv\Scripts\Activate.ps1          # Linux/macOS: source .venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env   # preencha GROQ_API_KEY (opcional)
+copy .env.example .env                # preencha GROQ_API_KEY (opcional)
 
 uvicorn src.main:app --reload
 ```
@@ -32,14 +46,18 @@ Documentação interativa: http://localhost:8000/docs
 pytest
 ```
 
-## Docker
+Incluem os laudos de exemplo do site, para garantir que a API e o motor do navegador chegam ao mesmo nível de risco.
 
-```bash
-docker build -t caresync-nlp-core .
-docker run -p 8000:8000 --env-file .env caresync-nlp-core
-```
+## Deploy no Vercel
 
-A porta pode ser alterada com a variável `PORT` (útil para Render/Railway/Fly).
+1. No Vercel: **Add New → Project** e importe este repositório do GitLab. O FastAPI é detectado sozinho (`app.py` na raiz).
+2. Em **Settings → Environment Variables** adicione:
+   - `GROQ_API_KEY`: chave criada em https://console.groq.com/keys
+   - `CORS_ORIGINS`: `https://caresync-eta-ten.vercel.app,http://localhost:3000`
+3. Faça o deploy e teste `https://<seu-projeto>.vercel.app/docs`.
+4. No projeto do **site**, defina `NEXT_PUBLIC_TRIAGE_API_URL=https://<seu-projeto>.vercel.app` e faça um novo deploy.
+
+Também há um `Dockerfile` para outras plataformas (Render, Railway, Fly): `docker build -t caresync-nlp-core .`
 
 ## API
 
@@ -48,33 +66,44 @@ A porta pode ser alterada com a variável `PORT` (útil para Render/Railway/Fly)
 ```json
 {
   "paciente_id": "P-123",
-  "texto_laudo": "Hemoglobina: 6,2 g/dL Referência: 12,0 a 15,5"
+  "paciente_nome": "José Almeida",
+  "texto_laudo": "HEMOGRAMA\nHemoglobina: 6,4 g/dL (VR: 12,0 a 17,5)"
 }
 ```
 
-Resposta:
+`paciente_id` e `paciente_nome` são opcionais; o nome só é usado na saudação. O laudo pode ter até 10.000 caracteres.
+
+Resposta (resumida):
 
 ```json
 {
   "paciente_id": "P-123",
-  "tipo_exame": "Análise de Sangue / Hemograma",
+  "tipo_exame": "Hemograma",
   "classificacao_geral": "CRITICO",
   "cor_badge": "#EF4444",
   "exames_extraidos": [
-    {"parametro": "Hemoglobina", "valor": 6.2, "unidade": "g/dL", "ref_min": 12.0, "ref_max": 15.5, "status_item": "CRITICO"}
+    {
+      "id": "hemoglobina", "parametro": "Hemoglobina", "valor": 6.4, "unidade": "g/dL",
+      "ref_min": 12.0, "ref_max": 17.5, "ref_fonte": "laudo",
+      "status_item": "CRITICO", "direcao": "baixo"
+    }
   ],
-  "mensagem_humanizada": "..."
+  "mensagem_humanizada": "Olá, José!\n...",
+  "fonte_mensagem": "llm",
+  "fontes": ["Hemoglobina: proteína do sangue que transporta oxigênio pelo corpo. Referência (adulto): 12 a 17,5 g/dL."],
+  "guardrails": ["Nenhum diagnóstico é afirmado, apenas a explicação do resultado.", "..."]
 }
 ```
 
-Retorna `400` quando nenhum marcador é reconhecido no texto.
+Retorna `400` quando nenhum marcador é reconhecido e `422` para entrada inválida.
 
 ## Variáveis de ambiente
 
 | Variável | Padrão | Descrição |
 |---|---|---|
-| `GROQ_API_KEY` | vazio | Chave da API Groq. Sem ela, usa mensagens padrão. |
+| `GROQ_API_KEY` | vazio | Chave da API Groq. Sem ela, a API usa o texto padrão. |
 | `DEFAULT_LLM_MODEL` | `llama-3.3-70b-versatile` | Modelo usado no Groq. |
-| `CORS_ORIGINS` | `*` | Origens permitidas, separadas por vírgula (ex: o domínio do Vercel). |
+| `LLM_TIMEOUT_SECONDS` | `10` | Tempo máximo de espera pelo LLM antes de usar o texto padrão. |
+| `CORS_ORIGINS` | `*` | Origens permitidas, separadas por vírgula. |
 
-> ⚠️ Este serviço é um apoio à comunicação e não substitui avaliação médica.
+> ⚠️ Projeto acadêmico de demonstração. Os intervalos são referências gerais para adultos e o serviço não substitui avaliação médica.
