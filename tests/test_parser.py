@@ -21,6 +21,7 @@ def _por_id(texto):
     ("250.000", "", 250000.0),
     ("1.250,5", "", 1250.5),
     ("250", " mil /mm³", 250000.0),
+    ("32,3", " mil/mm³", 32300.0),
     ("85", "", 85.0),
 ])
 def test_parse_numero(texto, resto, esperado):
@@ -93,3 +94,19 @@ def test_texto_sem_marcadores_retorna_lista_vazia():
 ])
 def test_detectar_tipo_exame(texto, ids, esperado):
     assert LabParser.detectar_tipo_exame(texto, ids) == esperado
+
+
+@pytest.mark.parametrize("linha, ref", [
+    ("Colesterol total: 232 mg/dL   VR: inferior a 190", (None, 190.0)),
+    ("Colesterol total: 232 mg/dL   Ref: menor que 190", (None, 190.0)),
+    ("Hemoglobina: 13,5 g/dL   Valor de referência: 12,0 até 15,5", (12.0, 15.5)),
+])
+def test_regex_e_ner_leem_referencias_do_mesmo_jeito(linha, ref):
+    from src.knowledge_base import POR_ID
+    from src.parser import parse_faixa
+
+    r = next(iter(_por_id(linha).values()))
+    assert r["ref"] == ref and r["ref_fonte"] == "laudo"
+    trecho = linha.split(":")[-1]
+    assert parse_faixa(trecho, POR_ID[r["marcador"].id].ref) == ref
+    assert r["valor"] in (232, 13.5)

@@ -25,8 +25,9 @@ sys.path.insert(0, str(RAIZ))
 
 from src.gerador_local import entrada_seq2seq  # noqa: E402
 from src.knowledge_base import POR_ID, formatar_numero  # noqa: E402
-from src.llm_service import contexto_rag  # noqa: E402
+from src.llm_service import montar_prompt  # noqa: E402
 from src.mensagens import corpo_padrao, faixa_item  # noqa: E402
+from src.parser import NUMERO_RE, parse_numero  # noqa: E402
 from src.rules import MotorDeRegras  # noqa: E402
 from src.schemas import NivelRisco  # noqa: E402
 
@@ -140,7 +141,9 @@ def _formatar_valor(rng, marcador_id, v):
         texto = f"{v:.{casas}f}"
         return texto.replace(".", ",") if rng.random() < 0.8 else texto
     if v >= 1000:
-        estilo = rng.choice(["br", "br", "us", "mil"])
+        # "6,8 mil" só para contagens de células, e só quando representa o valor exato.
+        mil_exato = POR_ID[marcador_id].unidade == "/mm³" and v % 100 == 0
+        estilo = rng.choice(["br", "br", "us", "mil"] if mil_exato else ["br", "br", "us"])
         if estilo == "mil":
             mil = v / 1000
             texto = f"{mil:.1f}".replace(".", ",") if mil % 1 else f"{int(mil)}"
@@ -149,6 +152,11 @@ def _formatar_valor(rng, marcador_id, v):
             return f"{int(v):,}".replace(",", ".")
         return str(int(v))
     return str(int(v))
+
+
+def _ler_valor(texto):
+    m = NUMERO_RE.search(texto)
+    return parse_numero(m.group(), texto[m.end():])
 
 
 def _formatar_ref(rng, ref):
@@ -373,6 +381,9 @@ def gerar_laudo(rng, i, layout, alvo):
     triagem = MotorDeRegras.avaliar_triagem_completa(dados, grupos[0][1])
     texto = t.valor()
     assert all(texto[e["inicio"]:e["fim"]] == e["texto"] for e in t.entidades)
+    # O texto do valor precisa corresponder exatamente ao valor do gabarito.
+    for it in itens:
+        assert _ler_valor(it["valor_txt"]) == it["valor"], (it["valor_txt"], it["valor"])
 
     return {
         "id": f"L{i:04d}",
@@ -382,9 +393,7 @@ def gerar_laudo(rng, i, layout, alvo):
         "itens": [e.model_dump(mode="json") for e in triagem.exames_extraidos],
         "tipo_exame": triagem.tipo_exame,
         "risco": triagem.classificacao_geral.value,
-        "entrada_llm": f"Classificação geral do exame: {triagem.classificacao_geral.value}\n"
-                       f"Tipo de exame: {triagem.tipo_exame}\n"
-                       f"Resultados e base de conhecimento:\n{contexto_rag(triagem)}",
+        "entrada_llm": montar_prompt(triagem),
         "explicacao_padrao": corpo_padrao(triagem),
         "entrada_seq2seq": entrada_seq2seq(triagem),
         "explicacao_alvo": explicacao_variada(rng, triagem),

@@ -32,10 +32,12 @@ llm_service = LLMService()
 
 @app.get("/")
 def health_check():
+    # Informa o que está efetivamente em uso (ex.: "auto" já resolvido para "groq" ou "padrao").
     return {
         "status": "ok",
         "service": "CareSync NLP Engine",
-        "extrator": settings.EXTRATOR,
+        "llm": llm_service.gerador != "padrao",
+        "extrator": "ner" if extrator is not LabParser else "regex",
         "gerador": llm_service.gerador,
     }
 

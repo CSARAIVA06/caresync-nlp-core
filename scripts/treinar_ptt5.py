@@ -44,8 +44,10 @@ from src.metricas import fidelidade_numerica, flesch_ptbr, rouge_l  # noqa: E402
 
 def carregar(limite=None):
     linhas = [json.loads(l) for l in open(RAIZ / "data" / "seq2seq.jsonl", encoding="utf-8")]
-    laudos = {json.loads(l)["id"]: json.loads(l)["texto"]
-              for l in open(RAIZ / "data" / "laudos_sinteticos.jsonl", encoding="utf-8")}
+    laudos = {}
+    for linha in open(RAIZ / "data" / "laudos_sinteticos.jsonl", encoding="utf-8"):
+        laudo = json.loads(linha)
+        laudos[laudo["id"]] = laudo["texto"]
     por_split = defaultdict(list)
     for l in linhas:
         l["laudo_bruto"] = laudos[l["id"]]

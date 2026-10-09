@@ -1,7 +1,8 @@
 """Métricas de avaliação do CareSync (extração, classificação e geração de texto)."""
 import re
-from collections import Counter
 from typing import Dict, Iterable, List, Sequence, Tuple
+
+from src.parser import parse_numero
 
 ROTULOS_RISCO = ["NORMAL", "ATENCAO", "CRITICO"]
 
@@ -83,14 +84,21 @@ def rouge_l(referencia: str, gerado: str) -> float:
     return 2 * p * r / (p + r)
 
 
+_VOGAIS_FORTES = set("aeoáéóâêô")
+
+
 def _silabas(palavra: str) -> int:
-    """Estimativa de sílabas em português: grupos de vogais, separando hiatos comuns."""
-    p = palavra.lower()
-    grupos = re.findall(r"[aeiouáéíóúâêôãõàü]+", p)
+    """Estimativa de sílabas em português: grupos de vogais, separando hiatos comuns.
+
+    Ditongos (ex.: "ai", "ão", "ue" em "que") contam 1. Duas vogais fortes seguidas
+    ("poema", "teatro", "área") ou í/ú acentuados ("saída", "baú") contam 2.
+    """
     n = 0
-    for g in grupos:
-        # Ditongos/tritongos contam 1; vogais fortes seguidas (ex.: "oe" em "proteína") contam 2.
-        n += 1 + len(re.findall(r"(?<=[aeoáéóâêô])[aeoáéóâêô]|[íú]", g[1:] if len(g) > 1 else ""))
+    for g in re.findall(r"[aeiouáéíóúâêôãõàü]+", palavra.lower()):
+        n += 1
+        for anterior, atual in zip(g, g[1:]):
+            if (anterior in _VOGAIS_FORTES and atual in _VOGAIS_FORTES) or atual in "íú":
+                n += 1
     return max(1, n)
 
 
@@ -108,11 +116,15 @@ def flesch_ptbr(texto: str) -> float:
     return 248.835 - 1.015 * (len(palavras) / len(frases)) - 84.6 * (silabas / len(palavras))
 
 
-def numeros(texto: str) -> Counter:
-    return Counter(_NUMERO_RE.findall(texto))
+def numeros(texto: str) -> List[float]:
+    """Valores numéricos citados no texto, já normalizados ("245.000", "245 mil" e "245000" -> 245000)."""
+    return [parse_numero(m.group(), texto[m.end():]) for m in _NUMERO_RE.finditer(texto)]
 
 
 def fidelidade_numerica(entrada: str, gerado: str) -> bool:
-    """True se todo número citado no texto gerado aparece na entrada (sem números inventados)."""
+    """True se todo número citado no texto gerado aparece na entrada (sem números inventados).
+
+    Compara valores, não a grafia: "12" e "12,0", ou "245.000" e "245 mil", são o mesmo número.
+    """
     disponiveis = numeros(entrada)
-    return all(n in disponiveis for n in numeros(gerado))
+    return all(any(abs(n - d) <= 1e-9 * max(1.0, abs(d)) for d in disponiveis) for n in numeros(gerado))

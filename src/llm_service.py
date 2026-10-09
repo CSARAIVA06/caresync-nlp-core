@@ -56,6 +56,15 @@ def contexto_rag(triagem: ResultadoTriagem) -> str:
     return "\n".join(linhas)
 
 
+def montar_prompt(triagem: ResultadoTriagem) -> str:
+    """Mensagem de usuário enviada ao LLM. Dados do paciente (nome, id) nunca entram aqui."""
+    return (
+        f"Classificação geral do exame: {triagem.classificacao_geral.value}\n"
+        f"Tipo de exame: {triagem.tipo_exame}\n"
+        f"Resultados e base de conhecimento:\n{contexto_rag(triagem)}"
+    )
+
+
 class LLMService:
     def __init__(self):
         gerador = settings.GERADOR
@@ -91,15 +100,11 @@ class LLMService:
     def _gerar_corpo_ptt5(self, triagem: ResultadoTriagem) -> Optional[str]:
         from src.gerador_local import entrada_seq2seq
 
-        return self._validar(self.local.gerar(triagem), entrada_seq2seq(triagem), "PTT5")
+        entrada = entrada_seq2seq(triagem)
+        return self._validar(self.local.gerar(entrada), entrada, "PTT5")
 
     def _gerar_corpo_llm(self, triagem: ResultadoTriagem) -> Optional[str]:
-        # Dados do paciente (nome, id) nunca são enviados ao LLM: só os resultados.
-        prompt_usuario = (
-            f"Classificação geral do exame: {triagem.classificacao_geral.value}\n"
-            f"Tipo de exame: {triagem.tipo_exame}\n"
-            f"Resultados e base de conhecimento:\n{contexto_rag(triagem)}"
-        )
+        prompt_usuario = montar_prompt(triagem)
         response = self.client.chat.completions.create(
             model=settings.DEFAULT_LLM_MODEL,
             messages=[

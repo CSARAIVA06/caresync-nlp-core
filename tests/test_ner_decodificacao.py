@@ -75,3 +75,26 @@ def test_rotulos_cobrem_todas_as_entidades():
 def test_parse_faixa(texto, esperado):
     marcador = {"< 190": "colesterol", "inferior a 190": "colesterol", "4,0 a 11,0": "leucocitos"}.get(texto, "hemoglobina")
     assert parse_faixa(texto, POR_ID[marcador].ref) == esperado
+
+
+def test_i_solto_depois_de_o_abre_trecho_novo():
+    texto = "12,0 a 17,5) x 3"
+    offsets = [(0, 4), (5, 6), (7, 11), (11, 12), (13, 14), (15, 16)]
+    rotulos = ["B-REFERENCIA", "I-REFERENCIA", "I-REFERENCIA", "O", "O", "I-REFERENCIA"]
+    spans = tokens_para_spans(offsets, [LABEL2ID[r] for r in rotulos])
+    assert [(e, texto[a:b]) for e, a, b in spans] == [("REFERENCIA", "12,0 a 17,5"), ("REFERENCIA", "3")]
+
+
+def test_janelas_sobrepostas_preferem_a_entidade_completa():
+    from src.ner import mesclar_janelas
+
+    texto = "Plaquetas: 150.000 /mm³"
+    B, I, O = LABEL2ID["B-VALOR"], LABEL2ID["I-VALOR"], LABEL2ID["O"]
+    E, U = LABEL2ID["B-EXAME"], LABEL2ID["B-UNIDADE"]
+    # Janela 1 termina no meio do número ("150" "."); janela 2 começa no "150" e vai até o fim.
+    janela1 = ([(0, 0), (0, 9), (9, 10), (11, 14), (14, 15), (0, 0)], [O, E, O, B, I, O])
+    janela2 = ([(0, 0), (9, 10), (11, 14), (14, 15), (15, 18), (19, 23), (0, 0)], [O, O, B, I, I, U, O])
+    offsets, previstos = mesclar_janelas([janela1, janela2])
+    spans = tokens_para_spans(offsets, previstos)
+    assert [(e, texto[a:b]) for e, a, b in spans] == [("EXAME", "Plaquetas"), ("VALOR", "150.000"), ("UNIDADE", "/mm³")]
+    assert spans_para_itens(texto, spans)[0]["valor"] == 150000.0

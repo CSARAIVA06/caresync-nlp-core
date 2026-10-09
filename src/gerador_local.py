@@ -39,5 +39,6 @@ class GeradorPTT5:
             saida = self.modelo.generate(**enc, max_new_tokens=self.max_new_tokens, num_beams=self.num_beams)
         return self.tokenizer.batch_decode(saida, skip_special_tokens=True)
 
-    def gerar(self, triagem: ResultadoTriagem) -> str:
-        return self.gerar_textos([entrada_seq2seq(triagem)])[0].strip()
+    def gerar(self, entrada: str) -> str:
+        """Gera a explicação para uma entrada já montada por `entrada_seq2seq`."""
+        return self.gerar_textos([entrada])[0].strip()

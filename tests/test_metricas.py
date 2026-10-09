@@ -46,3 +46,22 @@ def test_fidelidade_numerica():
     entrada = "triagem: CRITICO | Hemoglobina: 6,4 g/dL (ref 12 a 17,5 g/dL; baixo)"
     assert fidelidade_numerica(entrada, "Sua hemoglobina está em 6,4 g/dL, abaixo de 12 a 17,5 g/dL.")
     assert not fidelidade_numerica(entrada, "Sua hemoglobina está em 5,9 g/dL.")
+
+
+@pytest.mark.parametrize("palavra, silabas", [
+    ("casa", 2), ("pão", 1), ("que", 1), ("água", 2), ("leite", 2),
+    ("poema", 3), ("teatro", 3), ("área", 3), ("coelho", 3), ("saída", 3), ("proteína", 4),
+])
+def test_contagem_de_silabas(palavra, silabas):
+    from src.metricas import _silabas
+    assert _silabas(palavra) == silabas
+
+
+@pytest.mark.parametrize("gerado", [
+    "Suas plaquetas estão em 245 mil /mm³.",
+    "Suas plaquetas estão em 245000 /mm³.",
+    "A referência começa em 150.000 e a hemoglobina está em 12,0 g/dL.",
+])
+def test_fidelidade_aceita_outra_grafia_do_mesmo_numero(gerado):
+    entrada = "Plaquetas: 245.000 /mm³ (ref 150.000 a 450.000 /mm³) | Hemoglobina: 12 g/dL"
+    assert fidelidade_numerica(entrada, gerado)

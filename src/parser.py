@@ -15,17 +15,15 @@ _NUM = r"\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?"
 NUMERO_RE = re.compile(_NUM)
 
 _REF_PREFIXO = r"\b(?:vr|ref|referencia|valores? de referencia)\b\s*:?\s*"
-REFERENCIA_RE = re.compile(
-    _REF_PREFIXO
-    + rf"(?:(?:<|≤|ate)\s*(?P<max_only>{_NUM})"
-    + rf"|(?:>|≥|acima de)\s*(?P<min_only>{_NUM})"
-    + rf"|(?P<min>{_NUM})\s*(?:a|-|ate)\s*(?P<max>{_NUM}))"
-)
+# Palavras que introduzem um limite único ("< 190", "inferior a 190", "acima de 40").
+_LIMITE_MAX = r"(?:<|≤|ate|inferior a|menor que)"
+_LIMITE_MIN = r"(?:>|≥|acima de|superior a|maior que)"
+_REF_PREFIXO_RE = re.compile(_REF_PREFIXO)
 
 _LIMPEZA = (
     re.compile(r"\([^)]*\)"),
     re.compile(r"\[[^\]]*\]"),
-    re.compile(_REF_PREFIXO + r"[<>≤≥]?\s*[\d.,]+(\s*(a|-|ate)\s*[\d.,]+)?"),
+    re.compile(_REF_PREFIXO + rf"(?:{_LIMITE_MAX}|{_LIMITE_MIN})?\s*[\d.,]+(\s*(a|-|ate)\s*[\d.,]+)?"),
     re.compile(r"\b\d{1,2}/\d{1,2}(/\d{2,4})?\b"),
 )
 
@@ -63,7 +61,8 @@ def parse_numero(texto: str, resto: str = "") -> float:
     else:
         valor = float(texto)
     if re.match(r"\s*mil\b", resto):
-        valor *= 1000
+        # round: 32.3 * 1000 daria 32299.999999999996 em ponto flutuante.
+        valor = round(valor * 1000, 6)
     return valor
 
 
@@ -101,23 +100,13 @@ def _mesma_escala(ref: Faixa, base: Faixa) -> bool:
 
 
 def _extrair_referencia(seg: str, base: Faixa) -> Optional[Faixa]:
-    match = REFERENCIA_RE.search(seg)
-    if not match:
-        return None
-    g = {k: parse_numero(v) if v else None for k, v in match.groupdict().items()}
-    if g["min"] is not None:
-        ref = (g["min"], g["max"])
-        if ref[0] > ref[1]:
-            return None
-    elif g["max_only"] is not None:
-        ref = (None, g["max_only"])
-    else:
-        ref = (g["min_only"], None)
-    return ref if _mesma_escala(ref, base) else None
+    """Procura "VR:", "Ref.:", "Referência:"... no trecho e lê a faixa que vem depois."""
+    match = _REF_PREFIXO_RE.search(seg)
+    return parse_faixa(seg[match.end():], base) if match else None
 
 
-_FAIXA_MAX = re.compile(rf"^(?:<|≤|ate|inferior a|menor que)\s*({_NUM})")
-_FAIXA_MIN = re.compile(rf"^(?:>|≥|acima de|superior a|maior que)\s*({_NUM})")
+_FAIXA_MAX = re.compile(rf"^{_LIMITE_MAX}\s*({_NUM})")
+_FAIXA_MIN = re.compile(rf"^{_LIMITE_MIN}\s*({_NUM})")
 _FAIXA_DUPLA = re.compile(rf"^({_NUM})\s*(?:a|-|ate)\s*({_NUM})")
 
 

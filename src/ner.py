@@ -37,20 +37,47 @@ def rotular_tokens(offsets, entidades) -> List[int]:
 
 
 def tokens_para_spans(offsets, ids_previstos) -> List[Span]:
-    """Junta subpalavras B-/I- consecutivas da mesma entidade em trechos de texto."""
+    """Junta subpalavras B-/I- consecutivas da mesma entidade em trechos de texto.
+
+    Um I- só continua a entidade se o token anterior for da mesma entidade; depois de
+    um "O" (ou de outra entidade), um I- solto abre um trecho novo.
+    """
     spans: List[List] = []
+    anterior = None
     for (inicio, fim), lid in zip(offsets, ids_previstos):
         if inicio == fim:
             continue
         rotulo = ID2LABEL[int(lid)]
         if rotulo == "O":
+            anterior = None
             continue
         prefixo, entidade = rotulo.split("-", 1)
-        if prefixo == "I" and spans and spans[-1][0] == entidade:
+        if prefixo == "I" and anterior == entidade:
             spans[-1][2] = fim
         else:
             spans.append([entidade, inicio, fim])
+        anterior = entidade
     return [tuple(s) for s in spans]
+
+
+def mesclar_janelas(janelas) -> Tuple[List[Tuple[int, int]], List[int]]:
+    """Une as previsões de janelas sobrepostas (laudos maiores que max_length).
+
+    Cada token fica com a previsão da janela em que está mais longe da borda, onde o
+    modelo viu contexto dos dois lados; assim uma entidade cortada no fim de uma janela
+    (ex.: "150." de "150.000") é substituída pela versão completa da janela seguinte.
+    `janelas` é uma lista de (offsets, ids_previstos).
+    """
+    melhor: Dict[Tuple[int, int], Tuple[int, int]] = {}
+    for offsets, previstos in janelas:
+        reais = [i for i, (a, b) in enumerate(offsets) if a != b]
+        for pos, i in enumerate(reais):
+            chave = (int(offsets[i][0]), int(offsets[i][1]))
+            distancia = min(pos, len(reais) - 1 - pos)
+            if chave not in melhor or distancia > melhor[chave][0]:
+                melhor[chave] = (distancia, int(previstos[i]))
+    chaves = sorted(melhor)
+    return chaves, [melhor[k][1] for k in chaves]
 
 
 def spans_para_itens(texto: str, spans: List[Span]) -> List[Dict[str, Any]]:
@@ -104,12 +131,7 @@ class NerExtractor:
         enc.pop("overflow_to_sample_mapping", None)
         with self.torch.no_grad():
             previsoes = self.modelo(**enc).logits.argmax(-1).tolist()
-        spans: List[Span] = []
-        for off, pred in zip(offsets, previsoes):
-            for s in tokens_para_spans(off, pred):
-                if not spans or s[1] >= spans[-1][2]:  # descarta a parte repetida da sobreposição
-                    spans.append(s)
-        return spans
+        return tokens_para_spans(*mesclar_janelas(zip(offsets, previsoes)))
 
     def parse_texto(self, texto: str) -> List[Dict[str, Any]]:
         return spans_para_itens(texto, self.prever_spans(texto))

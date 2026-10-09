@@ -10,7 +10,10 @@ llm_service.client = None
 def test_health_check():
     resp = client.get("/")
     assert resp.status_code == 200
-    assert resp.json()["status"] == "ok"
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["extrator"] == "regex"
+    assert isinstance(body["llm"], bool)
 
 
 def test_triagem_critica():

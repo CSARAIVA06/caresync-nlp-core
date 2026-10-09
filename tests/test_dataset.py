@@ -51,3 +51,11 @@ def test_textos_alvo_nao_violam_guardrails():
         laudo = gerar_laudo(rng, i, LAYOUTS_VISTOS[i % len(LAYOUTS_VISTOS)], list(NivelRisco)[i % 3])
         assert not viola_guardrails(laudo["explicacao_alvo"])
         assert fidelidade_numerica(laudo["entrada_seq2seq"], laudo["explicacao_alvo"])
+
+
+def test_texto_do_valor_sempre_corresponde_ao_gabarito():
+    # Gera muitos laudos críticos (inclui triglicerídeos >= 1000); o gerador falha com
+    # AssertionError se algum valor escrito no texto divergir do valor do gabarito.
+    rng = random.Random(11)
+    for i in range(400):
+        gerar_laudo(rng, i, (LAYOUTS_VISTOS + LAYOUTS_OOD)[i % 8], NivelRisco.CRITICO)
