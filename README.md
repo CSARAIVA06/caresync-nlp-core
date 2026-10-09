@@ -27,6 +27,50 @@ texto do laudo
 | `src/mensagens.py` | Texto padrão e partes fixas da mensagem (saudação, orientação de conduta, como "ligue 192", e aviso). |
 | `src/main.py` | API FastAPI. |
 
+## Pesquisa: modelos treinados
+
+Além do pipeline de regras, o repositório tem os experimentos de PLN do artigo. Todos usam
+um dataset sintético reprodutível e são comparados com a linha de base de regex.
+
+| Fase | O que é | Onde |
+|---|---|---|
+| 1. Dados | 1.200 laudos sintéticos em 8 formatos, com entidades anotadas (posições exatas), rótulo de risco e pares entrada→explicação. Dois formatos ficam só no teste (**OOD**) para medir a generalização. Exporta `ner_bio.jsonl`, `classificacao.csv` e `seq2seq.jsonl`. | `scripts/gerar_dataset.py` → `data/` |
+| Linha de base | Regex + regras nos mesmos splits. | `scripts/avaliar_regex.py` |
+| 2. NER | Fine-tuning do **BERTimbau** (Token Classification, BIO: EXAME, VALOR, UNIDADE, REFERENCIA). `src/ner.py` substitui o regex sem mudar as regras. | `scripts/treinar_ner.py`, `notebooks/02_ner_bertimbau.ipynb` |
+| 3. Classificador | **TF-IDF + SVM** prevendo o risco direto do texto, comparado com as regras e com a versão **híbrida** (regras sobrescrevem para CRÍTICO). | `scripts/treinar_classificador.py` |
+| 4. Geração | Fine-tuning do **PTT5** (encoder-decoder): resultado estruturado → explicação em linguagem simples. | `scripts/treinar_ptt5.py`, `notebooks/03_fine_tuning_ptt5.ipynb` |
+| 5. Inferência local | A API carrega os modelos treinados: `EXTRATOR=ner` e `GERADOR=ptt5`. Nenhum dado sai do servidor. | `src/ner.py`, `src/gerador_local.py` |
+| 6. Métricas | P/R/F1, matriz de confusão, críticos perdidos, ROUGE-L (tokenização com acentos), Flesch PT-BR e fidelidade numérica. | `src/metricas.py` → `resultados/RESULTADOS.md` |
+
+### Reproduzindo
+
+```powershell
+pip install torch --index-url https://download.pytorch.org/whl/cpu   # no Colab o torch já vem instalado
+pip install -r requirements-ml.txt
+
+python scripts/gerar_dataset.py          # Fase 1
+python scripts/avaliar_regex.py          # linha de base
+python scripts/treinar_classificador.py  # Fase 3 (segundos, CPU)
+python scripts/treinar_ner.py            # Fase 2 (~30–40 min na CPU; minutos numa GPU T4)
+python scripts/treinar_ptt5.py           # Fase 4 (use GPU: Colab T4)
+python scripts/compilar_resultados.py    # tabela para o artigo
+```
+
+Para rodar a API com os modelos treinados (fora do Vercel, que não comporta PyTorch):
+
+```powershell
+$env:EXTRATOR="ner"; $env:GERADOR="ptt5"; uvicorn src.main:app
+```
+
+### Decisões de projeto e limitações
+
+- **O modelo nunca decide o risco.** O NER só *lê* o laudo; a comparação com os limites é feita pelas regras. O PTT5 só escreve a explicação; a conduta (ex.: ligar 192) é fixa.
+- **Guardrails pós-geração:** textos com diagnóstico/prescrição ou com números que não estão na entrada são descartados e substituídos pelo texto padrão.
+- **Rótulos sintéticos:** os níveis de risco do dataset são calculados pelas próprias regras, então as regras são exatas *por construção* quando a extração é correta. As explicações-alvo vêm de modelos de frase; o campo `explicacao_revisada` existe para revisão humana (idealmente por profissional de saúde) antes de usar ROUGE-L como medida de qualidade.
+- **Formatos vistos x OOD:** o regex foi escrito para os formatos "vistos"; o desempenho real de generalização aparece no split `teste_ood`.
+- **Erro conhecido do NER:** no formato OOD "tabela com a referência antes do resultado", o modelo às vezes marca o limite da referência como VALOR (F1 0,71 nesse formato; 1,00 no laudo em várias linhas). Ele aprendeu que "o número após o nome do exame é o resultado". Incluir tabelas com colunas em ordens variadas no treino deve corrigir isso.
+- **Reprodutibilidade:** `data/` não é versionado; `python scripts/gerar_dataset.py --seed 42` recria exatamente o mesmo dataset. Resultados em `resultados/RESULTADOS.md`.
+
 ## Rodando localmente
 
 ```powershell
@@ -105,5 +149,7 @@ Retorna `400` quando nenhum marcador é reconhecido e `422` para entrada inváli
 | `DEFAULT_LLM_MODEL` | `llama-3.3-70b-versatile` | Modelo usado no Groq. |
 | `LLM_TIMEOUT_SECONDS` | `10` | Tempo máximo de espera pelo LLM antes de usar o texto padrão. |
 | `CORS_ORIGINS` | `*` | Origens permitidas, separadas por vírgula. |
+| `EXTRATOR` | `regex` | `regex` ou `ner` (modelo em `NER_MODELO_DIR`, padrão `modelos/ner-bertimbau`). |
+| `GERADOR` | `auto` | `auto` (Groq se houver chave), `groq`, `ptt5` (modelo em `PTT5_MODELO_DIR`, padrão `modelos/ptt5-caresync`) ou `padrao`. |
 
 > ⚠️ Projeto acadêmico de demonstração. Os intervalos são referências gerais para adultos e o serviço não substitui avaliação médica.

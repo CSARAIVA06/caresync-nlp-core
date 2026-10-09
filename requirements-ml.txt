@@ -1,0 +1,14 @@
+# Treino e inferência dos modelos (NER, classificador, PTT5). Não usado no deploy do Vercel.
+# CPU:   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Colab: o torch com CUDA já vem instalado.
+-r requirements-dev.txt
+torch>=2.2
+transformers>=5.0
+datasets>=2.19
+accelerate>=0.30
+sentencepiece>=0.2
+protobuf>=4.25
+seqeval>=1.2
+scikit-learn>=1.4
+joblib>=1.3
+matplotlib>=3.8

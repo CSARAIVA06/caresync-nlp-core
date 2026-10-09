@@ -116,6 +116,38 @@ def _extrair_referencia(seg: str, base: Faixa) -> Optional[Faixa]:
     return ref if _mesma_escala(ref, base) else None
 
 
+_FAIXA_MAX = re.compile(rf"^(?:<|≤|ate|inferior a|menor que)\s*({_NUM})")
+_FAIXA_MIN = re.compile(rf"^(?:>|≥|acima de|superior a|maior que)\s*({_NUM})")
+_FAIXA_DUPLA = re.compile(rf"^({_NUM})\s*(?:a|-|ate)\s*({_NUM})")
+
+
+def parse_faixa(texto: str, base: Faixa) -> Optional[Faixa]:
+    """Lê uma faixa de referência isolada ("12,0 a 17,5", "< 190", "inferior a 190").
+
+    Retorna None se não reconhecer o formato ou se a escala não bater com a base.
+    """
+    norm = normalizar(texto).strip()
+    if m := _FAIXA_DUPLA.match(norm):
+        ref = (parse_numero(m.group(1)), parse_numero(m.group(2)))
+        if ref[0] > ref[1]:
+            return None
+    elif m := _FAIXA_MAX.match(norm):
+        ref = (None, parse_numero(m.group(1)))
+    elif m := _FAIXA_MIN.match(norm):
+        ref = (parse_numero(m.group(1)), None)
+    else:
+        return None
+    return ref if _mesma_escala(ref, base) else None
+
+
+def identificar_marcador(texto: str) -> Optional[Marcador]:
+    """Associa o nome de exame reconhecido (ex.: "Glicemia de jejum") a um marcador da base."""
+    for marcador, _, _ in _encontrar_mencoes(normalizar(texto)):
+        if marcador is not None:
+            return marcador
+    return None
+
+
 class LabParser:
     """Extrai informações numéricas e textuais de laudos laboratoriais brutos."""
 

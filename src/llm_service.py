@@ -7,6 +7,7 @@ from groq import Groq
 from src.config import settings
 from src.knowledge_base import POR_ID, formatar_numero
 from src.mensagens import corpo_padrao, faixa_item, montar_mensagem
+from src.metricas import fidelidade_numerica
 from src.schemas import ResultadoTriagem
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ def viola_guardrails(texto: str) -> bool:
     return any(p.search(texto) for p in PADROES_PROIBIDOS)
 
 
-def _contexto_rag(triagem: ResultadoTriagem) -> str:
+def contexto_rag(triagem: ResultadoTriagem) -> str:
     linhas = []
     for i in triagem.exames_extraidos:
         m = POR_ID[i.id]
@@ -57,18 +58,47 @@ def _contexto_rag(triagem: ResultadoTriagem) -> str:
 
 class LLMService:
     def __init__(self):
+        gerador = settings.GERADOR
+        if gerador == "auto":
+            gerador = "groq" if settings.GROQ_API_KEY else "padrao"
+        self.gerador = gerador
         self.client = (
             Groq(api_key=settings.GROQ_API_KEY, timeout=settings.LLM_TIMEOUT_SECONDS, max_retries=1)
-            if settings.GROQ_API_KEY
+            if gerador == "groq" and settings.GROQ_API_KEY
             else None
         )
+        # Modelo PTT5 treinado localmente (inferência offline, nenhum dado sai do servidor).
+        self.local = None
+        if gerador == "ptt5":
+            from src.gerador_local import GeradorPTT5
+
+            self.local = GeradorPTT5(settings.PTT5_MODELO_DIR)
+
+    @staticmethod
+    def _validar(corpo: Optional[str], contexto: str, origem: str) -> Optional[str]:
+        """Guardrails pós-geração: sem diagnóstico/prescrição e sem números inventados."""
+        corpo = (corpo or "").strip()
+        if not corpo:
+            return None
+        if viola_guardrails(corpo):
+            logger.warning("Texto do %s descartado por violar guardrails: %r", origem, corpo)
+            return None
+        if not fidelidade_numerica(contexto, corpo):
+            logger.warning("Texto do %s descartado por citar números ausentes na entrada: %r", origem, corpo)
+            return None
+        return corpo
+
+    def _gerar_corpo_ptt5(self, triagem: ResultadoTriagem) -> Optional[str]:
+        from src.gerador_local import entrada_seq2seq
+
+        return self._validar(self.local.gerar(triagem), entrada_seq2seq(triagem), "PTT5")
 
     def _gerar_corpo_llm(self, triagem: ResultadoTriagem) -> Optional[str]:
         # Dados do paciente (nome, id) nunca são enviados ao LLM: só os resultados.
         prompt_usuario = (
             f"Classificação geral do exame: {triagem.classificacao_geral.value}\n"
             f"Tipo de exame: {triagem.tipo_exame}\n"
-            f"Resultados e base de conhecimento:\n{_contexto_rag(triagem)}"
+            f"Resultados e base de conhecimento:\n{contexto_rag(triagem)}"
         )
         response = self.client.chat.completions.create(
             model=settings.DEFAULT_LLM_MODEL,
@@ -79,22 +109,19 @@ class LLMService:
             temperature=0.3,
             max_tokens=300,
         )
-        conteudo = (response.choices[0].message.content or "").strip()
-        if not conteudo:
-            return None
-        if viola_guardrails(conteudo):
-            logger.warning("Resposta do LLM descartada por violar guardrails: %r", conteudo)
-            return None
-        return conteudo
+        return self._validar(response.choices[0].message.content, prompt_usuario, "LLM")
 
     def gerar_mensagem_humanizada(self, triagem: ResultadoTriagem, nome: Optional[str] = None) -> Tuple[str, str]:
-        """Retorna (mensagem, fonte), onde fonte é 'llm' ou 'modelo' (texto padrão)."""
+        """Retorna (mensagem, fonte): fonte 'ptt5' (modelo local), 'llm' (Groq) ou 'modelo' (texto padrão)."""
         corpo, fonte = None, "modelo"
-        if self.client:
-            try:
-                corpo = self._gerar_corpo_llm(triagem)
-                fonte = "llm" if corpo else "modelo"
-            except Exception:
-                # A triagem é determinística; uma falha do LLM não deve derrubar a resposta.
-                logger.exception("Falha ao gerar mensagem humanizada via LLM")
+        try:
+            if self.local is not None:
+                corpo, fonte = self._gerar_corpo_ptt5(triagem), "ptt5"
+            elif self.client is not None:
+                corpo, fonte = self._gerar_corpo_llm(triagem), "llm"
+        except Exception:
+            # A triagem é determinística; uma falha do gerador não deve derrubar a resposta.
+            logger.exception("Falha ao gerar mensagem humanizada")
+        if not corpo:
+            fonte = "modelo"
         return montar_mensagem(triagem, corpo or corpo_padrao(triagem), nome), fonte

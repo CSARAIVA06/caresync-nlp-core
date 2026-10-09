@@ -29,8 +29,8 @@ class ResultadoTriagem(BaseModel):
     cor_badge: str
     exames_extraidos: List[ItemExame]
     mensagem_humanizada: Optional[str] = None
-    fonte_mensagem: Optional[Literal["llm", "modelo"]] = Field(
-        None, description="'llm' quando gerada pelo modelo de linguagem; 'modelo' quando veio do texto padrão"
+    fonte_mensagem: Optional[Literal["llm", "ptt5", "modelo"]] = Field(
+        None, description="'llm' (Groq), 'ptt5' (modelo local treinado) ou 'modelo' (texto padrão)"
     )
     fontes: List[str] = Field(default_factory=list, description="Trechos da base de conhecimento usados (RAG)")
     guardrails: List[str] = Field(default_factory=list, description="Regras de segurança aplicadas")

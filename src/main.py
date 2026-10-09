@@ -17,18 +17,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def criar_extrator():
+    """Regex (padrão) ou NER treinado; o modelo é carregado uma vez, na inicialização."""
+    if settings.EXTRATOR == "ner":
+        from src.ner import NerExtractor
+
+        return NerExtractor(settings.NER_MODELO_DIR)
+    return LabParser
+
+
+extrator = criar_extrator()
 llm_service = LLMService()
 
 
 @app.get("/")
 def health_check():
-    return {"status": "ok", "service": "CareSync NLP Engine", "llm": llm_service.client is not None}
+    return {
+        "status": "ok",
+        "service": "CareSync NLP Engine",
+        "extrator": settings.EXTRATOR,
+        "gerador": llm_service.gerador,
+    }
 
 
 @app.post("/api/v1/triagem", response_model=ResultadoTriagem)
 def processar_laudo(payload: LaudoEntradaRequest):
-    # 1. Parsing / NER
-    dados_brutos = LabParser.parse_texto(payload.texto_laudo)
+    # 1. Extração (regex ou NER)
+    dados_brutos = extrator.parse_texto(payload.texto_laudo)
     if not dados_brutos:
         raise HTTPException(status_code=400, detail="Não foi possível extrair marcadores válidos do texto enviado.")
     tipo_exame = LabParser.detectar_tipo_exame(payload.texto_laudo, [d["marcador"].id for d in dados_brutos])

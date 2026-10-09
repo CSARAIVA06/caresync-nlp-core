@@ -3,3 +3,7 @@ notebooks/
 tests/
 Dockerfile
 requirements-dev.txt
+modelos/
+data/
+resultados/
+scripts/

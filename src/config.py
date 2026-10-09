@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str = ""
     DEFAULT_LLM_MODEL: str = "llama-3.3-70b-versatile"
     LLM_TIMEOUT_SECONDS: float = 10.0
+    # Extração: "regex" (padrão, leve) ou "ner" (BERTimbau treinado; requer requirements-ml.txt)
+    EXTRATOR: str = "regex"
+    NER_MODELO_DIR: str = "modelos/ner-bertimbau"
+    # Geração: "auto" (Groq se houver chave, senão texto padrão), "groq", "ptt5" (local) ou "padrao"
+    GERADOR: str = "auto"
+    PTT5_MODELO_DIR: str = "modelos/ptt5-caresync"
     # Origens separadas por vírgula (ex: "https://caresync.vercel.app,http://localhost:3000")
     CORS_ORIGINS: str = "*"
 
