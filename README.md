@@ -44,11 +44,11 @@ um dataset sintético reprodutível e são comparados com a linha de base de reg
 |---|---|---|
 | 1. Dados | 1.200 laudos sintéticos em 8 formatos, com entidades anotadas (posições exatas), rótulo de risco e pares entrada→explicação. Dois formatos ficam só no teste (**OOD**) para medir a generalização. Exporta `ner_bio.jsonl`, `classificacao.csv` e `seq2seq.jsonl`. | `scripts/gerar_dataset.py` → `data/` |
 | Linha de base | Regex + regras nos mesmos splits. | `scripts/avaliar_regex.py` |
-| 2. NER | Fine-tuning do **BERTimbau** (Token Classification, BIO: EXAME, VALOR, UNIDADE, REFERENCIA). `src/ner.py` substitui o regex sem mudar as regras. | `scripts/treinar_ner.py`, `notebooks/02_ner_bertimbau.ipynb` |
+| 2. NER | Fine-tuning do **BERTimbau** (Token Classification, BIO: EXAME, VALOR, UNIDADE, REFERENCIA). `src/ner.py` substitui o regex sem mudar as regras. O notebook mostra a curva de loss, a comparação com o regex e as matrizes de confusão (também em `resultados/*.png`). | `scripts/treinar_ner.py`, `notebooks/02_ner_bertimbau.ipynb` |
 | 3. Classificador | **TF-IDF + SVM** prevendo o risco direto do texto, comparado com as regras e com a versão **híbrida** (regras sobrescrevem para CRÍTICO). | `scripts/treinar_classificador.py` |
-| 4. Geração | Fine-tuning do **PTT5** (encoder-decoder): resultado estruturado → explicação em linguagem simples. | `scripts/treinar_ptt5.py`, `notebooks/03_fine_tuning_ptt5.ipynb` |
-| 5. Inferência local | A API carrega os modelos treinados: `EXTRATOR=ner` e `GERADOR=ptt5`. Nenhum dado sai do servidor. | `src/ner.py`, `src/gerador_local.py` |
-| 6. Métricas | P/R/F1, matriz de confusão, críticos perdidos, ROUGE-L (tokenização com acentos), Flesch PT-BR e fidelidade numérica. | `src/metricas.py` → `resultados/RESULTADOS.md` |
+| 4. Geração | Fine-tuning do **PTT5** (encoder-decoder): resultado estruturado → explicação em linguagem simples. **Implementado, mas não executado nesta versão** (sem modelo nem resultados; ver Limitações do artigo, H3). | `scripts/treinar_ptt5.py`, `notebooks/03_fine_tuning_ptt5.ipynb` |
+| 5. Inferência local | A API carrega os modelos treinados: `EXTRATOR=ner` (e `GERADOR=ptt5`, quando o PTT5 for treinado). Com o NER, a extração não sai do servidor. | `src/ner.py`, `src/gerador_local.py` |
+| 6. Métricas | P/R/F1, matriz de confusão e críticos perdidos (reportados). ROUGE-L, Flesch PT-BR e fidelidade numérica estão implementados para a avaliação do PTT5. | `src/metricas.py` → `resultados/RESULTADOS.md` |
 
 ### Reproduzindo
 
@@ -60,7 +60,7 @@ python scripts/gerar_dataset.py          # Fase 1
 python scripts/avaliar_regex.py          # linha de base
 python scripts/treinar_classificador.py  # Fase 3 (segundos, CPU)
 python scripts/treinar_ner.py            # Fase 2 (~26 min na CPU; minutos numa GPU T4)
-python scripts/treinar_ptt5.py           # Fase 4 (use GPU: Colab T4)
+python scripts/treinar_ptt5.py           # Fase 4, não executada no artigo (use GPU: Colab T4)
 python scripts/compilar_resultados.py    # tabela para o artigo
 ```
 
