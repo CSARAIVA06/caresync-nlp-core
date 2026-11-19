@@ -58,7 +58,7 @@ pip install -r requirements-ml.txt
 python scripts/gerar_dataset.py          # Fase 1
 python scripts/avaliar_regex.py          # linha de base
 python scripts/treinar_classificador.py  # Fase 3 (segundos, CPU)
-python scripts/treinar_ner.py            # Fase 2 (~30–40 min na CPU; minutos numa GPU T4)
+python scripts/treinar_ner.py            # Fase 2 (~26 min na CPU; minutos numa GPU T4)
 python scripts/treinar_ptt5.py           # Fase 4 (use GPU: Colab T4)
 python scripts/compilar_resultados.py    # tabela para o artigo
 ```
@@ -77,6 +77,8 @@ $env:EXTRATOR="ner"; $env:GERADOR="ptt5"; uvicorn src.main:app
 - **Formatos vistos x OOD:** o regex foi escrito para os formatos "vistos"; o desempenho real de generalização aparece no split `teste_ood`.
 - **Erros conhecidos do NER (teste OOD):** no formato "tabela com a referência antes do resultado" (F1 de extração 0,933), o modelo pegou o limite da referência como VALOR em 37 marcadores e deixou de extrair outros 6. Ele aprendeu que "o número após o nome do exame é o resultado". No laudo em várias linhas (F1 0,982), o erro é outro: 21 marcadores não extraídos. Esses erros causam 6 dos 7 críticos perdidos (1 no teste, formato sem referência); 6 dos 7 viraram NORMAL. Incluir tabelas com colunas em ordens variadas e laudos quebrados em linhas no treino deve reduzir isso.
 - **Reprodutibilidade:** `data/` não é versionado; `python scripts/gerar_dataset.py --seed 42` recria exatamente o mesmo dataset. Resultados em `resultados/RESULTADOS.md`.
+- **Modelos não versionados:** `modelos/` (o NER treinado tem 433 MB) fica fora do git. Para usar `EXTRATOR=ner` ou reproduzir a Fase 2, rode `scripts/treinar_ner.py`. Os testes, a API (com regex), o dataset, a linha de base e o classificador rodam sem ele.
+- **Configuração do NER publicado:** `neuralmind/bert-base-portuguese-cased`, 4 épocas (316 passos), batch 8, taxa de aprendizado 5×10⁻⁵ com aquecimento linear em 10% dos passos, weight decay 0,01, máximo de 512 tokens, melhor época escolhida pelo F1 na validação. Treino de 1.532,6 s (~25,5 min) em CPU (AMD Ryzen 5 5500, 32 GB de RAM, PyTorch sem GPU); inferência a ~8 laudos/s.
 
 ## Rodando localmente
 
