@@ -1,12 +1,19 @@
 # CareSync NLP Core
 
+- **Site e simulador no ar:** https://caresync-eta-ten.vercel.app
+- **Código do site:** [CSARAIVA06/caresync](https://github.com/CSARAIVA06/caresync)
+- **Resultados dos experimentos:** [`resultados/RESULTADOS.md`](resultados/RESULTADOS.md)
+
+Trabalho da disciplina de Processamento de Linguagem Natural — Ciência de Dados, Fatec Jundiaí.
+Autor: Caio Roberto Farias Saraiva · Orientação: Leonardo de Lellis Rossi.
+
 API de triagem de laudos laboratoriais do [CareSync](https://caresync-eta-ten.vercel.app). Recebe o texto bruto de um laudo e devolve:
 
 1. os marcadores extraídos (valor, unidade e faixa de referência);
 2. a classificação de risco (`NORMAL`, `ATENCAO`, `CRITICO`), feita por regras determinísticas;
 3. uma mensagem humanizada para o paciente, gerada por LLM (Groq), com guardrails.
 
-O site ([gitlab.com/caiofasaraiva/caresync](https://gitlab.com/caiofasaraiva/caresync)) chama esta API no simulador e usa o motor do navegador como reserva caso ela esteja fora do ar.
+O site ([CSARAIVA06/caresync](https://github.com/CSARAIVA06/caresync)) chama esta API no simulador e usa o motor do navegador como reserva caso ela esteja fora do ar.
 
 ## Arquitetura
 
