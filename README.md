@@ -64,11 +64,21 @@ python scripts/treinar_ptt5.py           # Fase 4, não executada no artigo (use
 python scripts/compilar_resultados.py    # tabela para o artigo
 ```
 
-Para rodar a API com os modelos treinados (fora do Vercel, que não comporta PyTorch):
+### Usando o modelo NER já treinado (sem treinar de novo)
+
+O modelo avaliado no artigo está na [Release v1.0](https://github.com/CSARAIVA06/caresync-nlp-core/releases/tag/v1.0)
+(`ner-bertimbau.zip`, 402 MB, SHA-256 `3688965aed689ca794eef5defb833d5059f43ea89a82ee22b4c79dfe1cc7c99c`).
+Extraia o zip na raiz do repositório (ele cria `modelos/ner-bertimbau/`) e:
 
 ```powershell
-$env:EXTRATOR="ner"; $env:GERADOR="ptt5"; uvicorn src.main:app
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -r requirements-ml.txt
+python scripts/gerar_dataset.py                      # recria data/ (seed 42)
+$env:EXTRATOR="ner"; uvicorn src.main:app            # API usando o NER
 ```
+
+Com o modelo extraído, o pipeline NER + regras reproduz no split `teste` acurácia 0,993, F1 de extração 0,999 e
+1 crítico perdido, como em `resultados/RESULTADOS.md`.
 
 ### Decisões de projeto e limitações
 
@@ -78,7 +88,7 @@ $env:EXTRATOR="ner"; $env:GERADOR="ptt5"; uvicorn src.main:app
 - **Formatos vistos x OOD:** o regex foi escrito para os formatos "vistos"; o desempenho real de generalização aparece no split `teste_ood`.
 - **Erros conhecidos do NER (teste OOD):** no formato "tabela com a referência antes do resultado" (F1 de extração 0,933), o modelo pegou o limite da referência como VALOR em 37 marcadores e deixou de extrair outros 6. Ele aprendeu que "o número após o nome do exame é o resultado". No laudo em várias linhas (F1 0,982), o erro é outro: 21 marcadores não extraídos. Esses erros causam 6 dos 7 críticos perdidos (1 no teste, formato sem referência); 6 dos 7 viraram NORMAL. Incluir tabelas com colunas em ordens variadas e laudos quebrados em linhas no treino deve reduzir isso.
 - **Reprodutibilidade:** `data/` não é versionado; `python scripts/gerar_dataset.py --seed 42` recria exatamente o mesmo dataset. Resultados em `resultados/RESULTADOS.md`.
-- **Modelos não versionados:** `modelos/` (o NER treinado tem 433 MB) fica fora do git. Para usar `EXTRATOR=ner` ou reproduzir a Fase 2, rode `scripts/treinar_ner.py`. Os testes, a API (com regex), o dataset, a linha de base e o classificador rodam sem ele.
+- **Modelos não versionados:** `modelos/` (o NER treinado tem 433 MB) fica fora do git. Para usar `EXTRATOR=ner`, baixe o modelo da Release v1.0 (seção acima) ou treine de novo com `scripts/treinar_ner.py`. Os testes, a API (com regex), o dataset, a linha de base e o classificador rodam sem ele.
 - **Configuração do NER publicado:** `neuralmind/bert-base-portuguese-cased`, 4 épocas (316 passos), batch 8, taxa de aprendizado 5×10⁻⁵ com aquecimento linear em 10% dos passos, weight decay 0,01, máximo de 512 tokens, melhor época escolhida pelo F1 na validação. Treino de 1.532,6 s (~25,5 min) em CPU (AMD Ryzen 5 5500, 32 GB de RAM, PyTorch sem GPU); inferência a ~8 laudos/s.
 
 ## Rodando localmente
